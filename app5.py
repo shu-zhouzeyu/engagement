@@ -6,13 +6,6 @@ import seaborn as sns
 import warnings
 import platform
 import os
-from collections import Counter
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.decomposition import LatentDirichletAllocation
-from janome.tokenizer import Tokenizer
-import re
-from itertools import combinations
-import json
 from matplotlib import font_manager, rcParams
 
 # WordCloudライブラリをインポート
@@ -27,52 +20,48 @@ import networkx as nx
 # Streamlit Plotly Eventsをインポート
 from streamlit_plotly_events import plotly_events
 
-# -----------------------------------
-# ✅ 日本語フォント設定（matplotlib + WordCloud 両対応）
-# -----------------------------------
+# 日本語フォント設定 (WordCloudとMatplotlib用)
 
-def find_japanese_ttf_font():
-    # 優先フォント名のリスト
-    preferred_keywords = ['noto', 'takao', 'gothic', 'mplus', 'ume', 'ipag', 'meiryo', 'hiragino']
+# アプリケーションディレクトリ内のフォントパスを指定
+# 例えば、カレントディレクトリに 'fonts' フォルダがあり、その中に 'NotoSansJP-Regular.ttf' がある場合
+font_file_name = 'NotoSansJP-Regular.ttf' # または使用したいNoto Sans JPのファイル名
 
-    # ✅ 1. リポジトリ内の fonts/ フォルダを優先的に検索
-    repo_fonts_path = os.path.join(os.path.dirname(__file__), 'fonts')
-    if os.path.isdir(repo_fonts_path):
-        font_files = font_manager.findSystemFonts(fontpaths=[repo_fonts_path])
-        for f in font_files:
-            if f.endswith(".ttf") and any(k in f.lower() for k in preferred_keywords):
-                return f
-
-    # ✅ 2. システムフォントから検索（通常のLinux/Mac/Win）
-    font_files = font_manager.findSystemFonts(fontpaths=None)
-    for f in font_files:
-        if f.endswith(".ttf") and any(k in f.lower() for k in preferred_keywords):
-            return f
-
-    # 見つからなければ None
-    return None
-
-# Matplotlib用のフォント設定
-def set_matplotlib_font(font_path):
-    try:
-        font_prop = font_manager.FontProperties(fname=font_path)
-        rcParams['font.family'] = font_prop.get_name()
-        return font_prop
-    except Exception as e:
-        st.warning(f"フォント設定に失敗しました: {e}")
-        return None
-
-# 実行
-font_path = find_japanese_ttf_font()
-if font_path:
-    font_prop = set_matplotlib_font(font_path)
-    st.info(f"日本語フォント '{font_prop.get_name()}' を使用しています。")
+# fonts フォルダ内にあるか、または直接カレントディレクトリにあるかを確認
+if os.path.exists(f'fonts/{font_file_name}'):
+    font_path = f'fonts/{font_file_name}'
+elif os.path.exists(font_file_name): # 直接カレントディレクトリにある場合
+    font_path = font_file_name
 else:
-    st.warning("日本語フォント（.ttf）が見つかりません。文字化けの可能性があります。")
-    rcParams['font.family'] = ['sans-serif']
-    font_path = None  # WordCloud に渡す用
-    
+    # 最終的なフォールバック（デプロイ環境では通常このパスは存在しないはずですが、念のため）
+    # ローカル開発時の参考用として残しておく
+    st.warning(f"指定された同梱フォント '{font_file_name}' が見つかりません。システムフォントを試します。")
+    if platform.system() == 'Windows':
+        font_path = 'C:/Windows/Fonts/meiryo.ttc'
+    elif platform.system() == 'Darwin':
+        font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
+    else:
+        font_path = '/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf'
+
+
+font_prop = None
+if os.path.exists(font_path):
+    font_prop = font_manager.FontProperties(fname=font_path)
+    rcParams['font.family'] = font_prop.get_name()
+    st.success(f"フォント '{font_prop.get_name()}' を設定しました。")
+else:
+    st.error(f"指定された日本語フォント '{font_path}' が見つかりません。文字化けの可能性があります。")
+    # ここに到達した場合、フォントファイルが見つからなかったことを明確にする
+    rcParams['font.family'] = ['sans-serif'] # 最終的なフォールバック
+        
 warnings.filterwarnings('ignore')
+
+from collections import Counter
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.decomposition import LatentDirichletAllocation
+from janome.tokenizer import Tokenizer
+import re
+from itertools import combinations
+import json
 
 class SurveyNLPAnalyzer:
     def __init__(self, df):
@@ -211,41 +200,30 @@ class SurveyNLPAnalyzer:
             G.add_edge(w1, w2, weight=count)
         return G if G.number_of_nodes() > 0 else None
 
-    # def generate_wordcloud_image(word_counts, file_name, width=800, height=400, font_path=None, font_prop=None):
-    #     """
-    #     ワードクラウド画像を生成して matplotlib の Figure を返す関数。
+    def generate_wordcloud_image(self, text_data, file_name, width=800, height=400):
+        if not text_data:
+            st.warning(f"{file_name} のワードクラウド用のテキストデータが空です。")
+            return None
 
-    #     Parameters:
-    #         word_counts (dict): 単語と頻度の辞書
-    #         file_name (str): 図のタイトルとして表示されるテキスト
-    #         width (int): ワードクラウド画像の横幅
-    #         height (int): ワードクラウド画像の縦幅
-    #         font_path (str): WordCloud 用フォントパス（.ttf）
-    #         font_prop (FontProperties): matplotlib 用フォント設定
+        wc = WordCloud(
+            font_path=self.wc_font_path,
+            width=width,
+            height=height,
+            background_color="black",
+            max_words=100,
+            min_font_size=10,
+            collocations=False
+        )
+        
+        word_counts = Counter(text_data)
+        wc.generate_from_frequencies(word_counts)
 
-    #     Returns:
-    #         matplotlib.figure.Figure: 描画済のワードクラウド図
-    #     """
-
-    #     # WordCloudインスタンス生成（背景は黒）
-    #     wc = WordCloud(
-    #         font_path=font_path,
-    #         width=width,
-    #         height=height,
-    #         background_color="black",
-    #         colormap='tab20'  # カラーマップ変更可
-    #     )
-
-    #     # 単語頻度から画像生成
-    #     wc.generate_from_frequencies(word_counts)
-
-    #     # matplotlibで描画
-    #     fig, ax = plt.subplots(figsize=(width / 100, height / 100))
-    #     ax.imshow(wc, interpolation='bilinear')
-    #     ax.axis("off")
-    #     ax.set_title(file_name, fontproperties=font_prop, fontsize=18, color='white')
-
-    #     return fig
+        fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
+        ax.imshow(wc, interpolation='bilinear')
+        ax.axis("off")
+        ax.set_title(file_name, fontproperties=font_prop, fontsize=18, color='white')
+        
+        return fig
 
     def draw_network_graph_matplotlib(self, G, title="共起ネットワークグラフ"):
         if G is None or G.number_of_nodes() == 0:
@@ -598,15 +576,15 @@ def main_app():
             else:
                 st.info("性別分類データなし (全体)")
             
-            # st.subheader("ワードクラウド (全体)")
-            # overall_wc_image_fig = analyzer.generate_wordcloud_image(
-            #     analysis_results['overall'].get('word_list', []), 
-            #     'ワードクラウド (全体)', width=1000, height=500
-            # )
-            # if overall_wc_image_fig:
-            #     st.pyplot(overall_wc_image_fig)
-            # else:
-            #     st.info("ワードクラウドデータなし (全体)")
+            st.subheader("ワードクラウド (全体)")
+            overall_wc_image_fig = analyzer.generate_wordcloud_image(
+                analysis_results['overall'].get('word_list', []), 
+                'ワードクラウド (全体)', width=1000, height=500
+            )
+            if overall_wc_image_fig:
+                st.pyplot(overall_wc_image_fig)
+            else:
+                st.info("ワードクラウドデータなし (全体)")
             
             st.subheader("共起ネットワークグラフ (全体)")
             overall_collocations = analysis_results['overall'].get('collocations', [])
