@@ -8,3 +8,4 @@ seaborn
 plotly
 wordcloud
 networkx
+streamlit-plotly-events
