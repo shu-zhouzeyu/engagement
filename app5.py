@@ -8,56 +8,46 @@ import platform
 import os
 from matplotlib import font_manager, rcParams
 
-# WordCloudライブラリをインポート
-from wordcloud import WordCloud
-
 # Plotly Expressをインポート
 import plotly.express as px
 
-# NetworkXをインポート (グラフ描画のため)
-import networkx as nx
-
-# Streamlit Plotly Eventsをインポート
-from streamlit_plotly_events import plotly_events
-
 # 日本語フォント設定 (WordCloudとMatplotlib用)
-
-# アプリケーションディレクトリ内のフォントパスを指定
-# 例えば、カレントディレクトリに 'fonts' フォルダがあり、その中に 'NotoSansJP-Regular.ttf' がある場合
-font_file_name = 'NotoSansJP-Regular.ttf' # または使用したいNoto Sans JPのファイル名
-
-# fonts フォルダ内にあるか、または直接カレントディレクトリにあるかを確認
-if os.path.exists(f'fonts/{font_file_name}'):
-    font_path = f'fonts/{font_file_name}'
-elif os.path.exists(font_file_name): # 直接カレントディレクトリにある場合
-    font_path = font_file_name
+if platform.system() == 'Windows':
+    font_path = 'C:/Windows/Fonts/meiryo.ttc'
+elif platform.system() == 'Darwin':
+    font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
 else:
-    # 最終的なフォールバック（デプロイ環境では通常このパスは存在しないはずですが、念のため）
-    # ローカル開発時の参考用として残しておく
-    st.warning(f"指定された同梱フォント '{font_file_name}' が見つかりません。システムフォントを試します。")
-    if platform.system() == 'Windows':
-        font_path = 'C:/Windows/Fonts/meiryo.ttc'
-    elif platform.system() == 'Darwin':
-        font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
-    else:
-        font_path = '/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf'
+    # Linux (例: Ubuntuの場合) のフォントパス
+    font_path = '/usr/share/fonts/truetype/vlgothic/VL-Gothic-Regular.ttf'
+    # 他のLinuxディストリビューションの場合、適宜変更してください
 
-
+# font_prop はグローバル変数として保持し、Streamlitのキャッシュにも利用
 font_prop = None
 if os.path.exists(font_path):
     font_prop = font_manager.FontProperties(fname=font_path)
     rcParams['font.family'] = font_prop.get_name()
-    st.success(f"フォント '{font_prop.get_name()}' を設定しました。")
 else:
-    st.error(f"指定された日本語フォント '{font_path}' が見つかりません。文字化けの可能性があります。")
-    # ここに到達した場合、フォントファイルが見つからなかったことを明確にする
-    rcParams['font.family'] = ['sans-serif'] # 最終的なフォールバック
-        
+    st.warning(f"指定された日本語フォント '{font_path}' が見つかりません。代替フォントを検索します。")
+    font_files = font_manager.findSystemFonts(fontpaths=None)
+    found_japanese_font = False
+    for f in font_files:
+        if "japanese" in f.lower() or "gothic" in f.lower() or "meiryo" in f.lower() or "hiragino" in f.lower() or "noto" in f.lower():
+            font_path = f
+            font_prop = font_manager.FontProperties(fname=font_path)
+            rcParams['font.family'] = font_prop.get_name()
+            st.info(f"代替日本語フォント '{font_prop.get_name()}' を設定しました。")
+            found_japanese_font = True
+            break
+    if not found_japanese_font:
+        st.error("代替の日本語フォントも見つかりませんでした。文字化けの可能性があります。")
+        rcParams['font.family'] = ['sans-serif']
+
 warnings.filterwarnings('ignore')
 
 from collections import Counter
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.decomposition import LatentDirichletAllocation
+import networkx as nx
 from janome.tokenizer import Tokenizer
 import re
 from itertools import combinations
@@ -74,7 +64,7 @@ class SurveyNLPAnalyzer:
             r'わからない', r'特になし', r'不明', r'なし',
             r'特に.*ない', r'よくわからない', r'^\s*$', r'ない'
         ]
-        self.excluded_verbs = {'する', 'なる', 'いる', 'られる', '感じる', 'やすい', 'せる', 'ある', 'いう', '自分'}
+        self.excluded_verbs = {'する', 'なる', 'いる', 'られる', '感じる', 'やすい', 'せる', 'ある', 'いう','自分'}
         
         self.wc_font_path = font_path # Word Cloud用のフォントパス
 
@@ -200,123 +190,52 @@ class SurveyNLPAnalyzer:
             G.add_edge(w1, w2, weight=count)
         return G if G.number_of_nodes() > 0 else None
 
-    def generate_wordcloud_image(self, text_data, file_name, width=800, height=400):
-        if not text_data:
-            st.warning(f"{file_name} のワードクラウド用のテキストデータが空です。")
-            return None
 
-        wc = WordCloud(
-            font_path=self.wc_font_path,
-            width=width,
-            height=height,
-            background_color="black",
-            max_words=100,
-            min_font_size=10,
-            collocations=False
-        )
-        
-        word_counts = Counter(text_data)
-        wc.generate_from_frequencies(word_counts)
-
-        fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
-        ax.imshow(wc, interpolation='bilinear')
-        ax.axis("off")
-        ax.set_title(file_name, fontproperties=font_prop, fontsize=18, color='white')
-        
-        return fig
-
-    def draw_network_graph_matplotlib(self, G, title="共起ネットワークグラフ"):
-        if G is None or G.number_of_nodes() == 0:
-            st.warning(f"{title} のネットワークグラフデータがありません。ノードが不足している可能性があります。")
-            return None
-
-        pos = nx.spring_layout(G, k=0.5, iterations=50, seed=42)
-        
-        fig, ax = plt.subplots(figsize=(12, 10))
-        
-        weights = [G[u][v]['weight'] for u,v in G.edges()]
-        if weights:
-            max_weight = max(weights)
-            edge_widths = [w / max_weight * 4.5 + 0.5 for w in weights] 
-        else:
-            edge_widths = [1] * len(G.edges())
-
-        nx.draw_networkx_edges(G, pos, ax=ax, width=edge_widths, alpha=0.5, edge_color='gray')
-
-        node_sizes = [G.degree(node) * 200 + 500 for node in G.nodes()]
-        
-        nx.draw_networkx_nodes(G, pos, ax=ax, node_size=node_sizes, node_color='skyblue', alpha=0.9)
-
-        nx.draw_networkx_labels(G, pos, font_size=10, font_color='black', font_family=font_prop.get_name())
-
-        ax.set_title(title, fontproperties=font_prop, fontsize=18)
-        ax.axis('off')
-        
-        return fig
-
-
-    @st.cache_data(hash_funcs={pd.DataFrame: lambda _: None})
-    def analyze_data(_self, df_input, top_n_keywords):
-        _self.df = df_input.copy()
+    @st.cache_data # 分析結果をキャッシュして高速化
+    def analyze_data(_self, df_input, top_n_keywords): # top_n_keywords を引数に追加
+        _self.df = df_input.copy() # キャッシュされたdf_inputを使用
         _self.question_cols = [col for col in _self.df.columns if re.match(r'Q\d+回答', col)]
 
         st.write("### 自然言語処理分析中...")
 
-        # 全体分析のためのテキスト抽出と前処理
         all_combined_texts_for_overall_analysis = []
-        # 各回答行のオリジナルインデックスを保持するためのリスト
-        overall_original_indices = [] 
-        for idx, row in _self.df.iterrows():
-            combined_row_text = []
-            for col_name in _self.question_cols:
-                preprocessed_text = _self.preprocess_text(row[col_name])
-                if preprocessed_text:
-                    combined_row_text.append(preprocessed_text)
-            
-            if combined_row_text: # 何らかの有効なテキストがある場合のみ追加
-                all_combined_texts_for_overall_analysis.append(" ".join(combined_row_text))
-                overall_original_indices.append(idx) # 元の行インデックスを保存
-
-        # 有効な回答テキストのみをフィルタリング
-        valid_overall_texts_with_indices = [
-            (overall_original_indices[i], text) 
-            for i, text in enumerate(all_combined_texts_for_overall_analysis) 
-            if text
-        ]
+        for col_name in _self.question_cols:
+            all_combined_texts_for_overall_analysis.extend(_self.df[col_name].apply(_self.preprocess_text).tolist())
+        valid_overall_texts = [text for text in all_combined_texts_for_overall_analysis if text]
         
-        st.write(f"全体での有効回答数: {len(valid_overall_texts_with_indices)}")
+        st.write(f"全体での有効回答数: {len(valid_overall_texts)}")
 
         analysis_results = {}
         analysis_results['overall'] = {}
         
-        overall_keyword_occurrence_counts = Counter()
-        overall_word_list_for_wordcloud = [] # ワードクラウド用に全ての形態素解析された単語を保持
-
-        # ホバー情報表示のために、キーワードと元のテキストを紐づけたDataFrameを作成
-        overall_detailed_keyword_data = []
-
-        for original_idx, text_content in valid_overall_texts_with_indices:
-            morphed_words = _self.morphological_analysis(text_content)
-            overall_word_list_for_wordcloud.extend(morphed_words) # ワードクラウド用
-
-            unique_words_in_text = set(morphed_words) # 回答内のユニークなキーワード
-            for word in unique_words_in_text:
-                overall_keyword_occurrence_counts[word] += 1
-                overall_detailed_keyword_data.append({
-                    'keyword': word,
-                    'original_text': _self.df.loc[original_idx, _self.question_cols].astype(str).str.cat(sep=" "), # 回答全てを連結
-                    'original_row_index': original_idx
-                })
-                
-        analysis_results['overall']['word_list'] = overall_word_list_for_wordcloud # ワードクラウド用
-        analysis_results['overall']['top_words'] = overall_keyword_occurrence_counts.most_common(top_n_keywords)
-        analysis_results['overall']['detailed_keywords_df'] = pd.DataFrame(overall_detailed_keyword_data)
-
-        analysis_results['overall']['tfidf_keywords'] = _self.extract_keywords_tfidf([text for _, text in valid_overall_texts_with_indices])
-
-        analysis_results['overall']['topics'] = _self.topic_modeling_lda([text for _, text in valid_overall_texts_with_indices])
+        # WordCloudとPlotly Bar Chart用の生の単語リストとDataFrameを保存
+        overall_word_list = []
+        for text in valid_overall_texts:
+            overall_word_list.extend(_self.morphological_analysis(text))
+        analysis_results['overall']['word_list'] = overall_word_list
+        # ★★★ 修正点: top_n_keywords を Counter.most_common に渡す ★★★
+        analysis_results['overall']['top_words'] = Counter(overall_word_list).most_common(top_n_keywords)
         
-        overall_sentiments = [_self.sentiment_analysis(t) for _, t in valid_overall_texts_with_indices]
+        # ホバー情報表示のために、キーワードと元のテキストを紐づけたDataFrameを作成
+        keyword_data = []
+        for col in _self.question_cols:
+            for idx, row in _self.df.iterrows():
+                preprocessed_text = _self.preprocess_text(row[col])
+                if preprocessed_text:
+                    words = _self.morphological_analysis(preprocessed_text)
+                    for word in words:
+                        keyword_data.append({
+                            'keyword': word,
+                            'original_text': row[col] # ★★★ 修正点: ホバーに表示する内容をoriginal_textのみにする ★★★
+                        })
+        analysis_results['overall']['detailed_keywords_df'] = pd.DataFrame(keyword_data)
+
+        # TF-IDFキーワード (これは以前の棒グラフ用で、Plotly棒グラフでは'top_words'を使う)
+        analysis_results['overall']['tfidf_keywords'] = _self.extract_keywords_tfidf(valid_overall_texts)
+
+        analysis_results['overall']['topics'] = _self.topic_modeling_lda(valid_overall_texts)
+        
+        overall_sentiments = [_self.sentiment_analysis(t) for t in valid_overall_texts]
         analysis_results['overall']['sentiments'] = Counter([s['sentiment'] for s in overall_sentiments])
 
         classifications = []
@@ -326,14 +245,15 @@ class SurveyNLPAnalyzer:
                 combined_text_parts.append(_self.preprocess_text(row[col]))
             classifications.append(_self.classify_request_type(" ".join(combined_text_parts).strip()))
 
-        temp_df = _self.df.copy()
+        temp_df = _self.df.copy() # 一時的に分類結果を追加するためのコピー
         temp_df['classification'] = classifications 
         analysis_results['overall']['classifications'] = Counter(classifications)
         
-        _self.df = temp_df
+        _self.df = temp_df # 分類結果を元のDataFrameに反映（Streamlitのセッション管理を考慮）
 
-        analysis_results['overall']['collocations'] = _self.collocation_analysis([text for _, text in valid_overall_texts_with_indices])
+        analysis_results['overall']['collocations'] = _self.collocation_analysis(valid_overall_texts)
 
+        # 属性別分析
         has_org = '組織' in _self.df.columns and not _self.df['組織'].empty
         has_gender = '性別' in _self.df.columns and not _self.df['性別'].empty
 
@@ -353,115 +273,87 @@ class SurveyNLPAnalyzer:
         analysis_results['questions'] = {}
         for q_col in _self.question_cols:
             st.write(f"--- 設問 '{q_col}' の分析中 ---")
-            
-            # 設問ごとの有効なテキストとその元のインデックスを保持
-            q_texts_with_indices = []
-            for idx, row in _self.df.iterrows():
-                preprocessed_text = _self.preprocess_text(row[q_col])
-                if preprocessed_text:
-                    q_texts_with_indices.append((idx, preprocessed_text))
-
-            st.write(f"設問 '{q_col}' の有効回答数: {len(q_texts_with_indices)}")
+            q_texts = _self.df[q_col].apply(_self.preprocess_text).tolist()
+            valid_q_texts = [text for text in q_texts if text]
+            st.write(f"設問 '{q_col}' の有効回答数: {len(valid_q_texts)}")
 
             analysis_results['questions'][q_col] = {}
             
-            analysis_results['questions'][q_col]['keywords'] = _self.extract_keywords_tfidf([text for _, text in q_texts_with_indices])
+            analysis_results['questions'][q_col]['keywords'] = _self.extract_keywords_tfidf(valid_q_texts)
             
-            q_sentiments = [_self.sentiment_analysis(t) for _, t in q_texts_with_indices]
+            q_sentiments = [_self.sentiment_analysis(t) for t in valid_q_texts]
             analysis_results['questions'][q_col]['sentiments'] = Counter([s['sentiment'] for s in q_sentiments])
             
-            analysis_results['questions'][q_col]['collocations'] = _self.collocation_analysis([text for _, text in q_texts_with_indices])
+            analysis_results['questions'][q_col]['collocations'] = _self.collocation_analysis(valid_q_texts)
             
-            q_keyword_occurrence_counts = Counter()
-            q_word_list_for_wordcloud = [] # ワードクラウド用に全ての形態素解析された単語を保持
+            q_word_list = [] # ワードクラウドとPlotly Bar Chart用に単語リストを保持
+            for text in valid_q_texts:
+                q_word_list.extend(_self.morphological_analysis(text))
+            # ★★★ 修正点: top_n_keywords を Counter.most_common に渡す ★★★
+            analysis_results['questions'][q_col]['top_words'] = Counter(q_word_list).most_common(top_n_keywords)
+            analysis_results['questions'][q_col]['word_list'] = q_word_list # ワードクラウド用とPlotlyホバー情報用
 
             # 設問ごとの詳細キーワードDataFrame (ホバー情報用)
-            q_detailed_keyword_data = []
-
-            for original_idx, text_content in q_texts_with_indices:
-                morphed_words = _self.morphological_analysis(text_content)
-                q_word_list_for_wordcloud.extend(morphed_words) # ワードクラウド用
-
-                unique_words_in_text = set(morphed_words) # 回答内のユニークなキーワード
-                for word in unique_words_in_text: # 修正済み
-                    q_keyword_occurrence_counts[word] += 1
-                    q_detailed_keyword_data.append({
-                        'keyword': word,
-                        'original_text': _self.df.loc[original_idx, q_col], # 特定の質問の回答テキスト
-                        'original_row_index': original_idx
-                    })
-
-            analysis_results['questions'][q_col]['word_list'] = q_word_list_for_wordcloud # ワードクラウド用
-            analysis_results['questions'][q_col]['top_words'] = q_keyword_occurrence_counts.most_common(top_n_keywords)
-            analysis_results['questions'][q_col]['detailed_keywords_df'] = pd.DataFrame(q_detailed_keyword_data)
+            q_keyword_data = []
+            for idx, row in _self.df.iterrows():
+                preprocessed_text = _self.preprocess_text(row[q_col])
+                if preprocessed_text:
+                    words = _self.morphological_analysis(preprocessed_text)
+                    for word in words:
+                        q_keyword_data.append({
+                            'keyword': word,
+                            'original_text': row[q_col] # ★★★ 修正点: ホバーに表示する内容をoriginal_textのみにする ★★★
+                        })
+            analysis_results['questions'][q_col]['detailed_keywords_df'] = pd.DataFrame(q_keyword_data)
         
-        return analysis_results, _self.df
+        return analysis_results, _self.df # 更新されたdfも返す
 
 
+# Streamlitアプリケーションのメイン関数
 def main_app():
-    st.set_page_config(layout="wide")
+    st.set_page_config(layout="wide") # レイアウトをワイドに設定
     st.title("アンケート自由記述分析アプリ")
 
+    # ファイルアップローダー
     uploaded_file = st.sidebar.file_uploader("CSVファイルをアップロードしてください", type=["csv"])
-
-    if 'analysis_results' not in st.session_state:
-        st.session_state['analysis_results'] = None
-    if 'df' not in st.session_state:
-        st.session_state['df'] = None
-    if 'analyzer' not in st.session_state:
-        st.session_state['analyzer'] = None
-    if 'selected_overall_keyword' not in st.session_state:
-        st.session_state['selected_overall_keyword'] = None
-    if 'selected_overall_keyword_indices' not in st.session_state:
-        st.session_state['selected_overall_keyword_indices'] = []
 
     df = None
     if uploaded_file is not None:
         try:
+            # CSVを読み込む際にencodingを指定
             df = pd.read_csv(uploaded_file, encoding='utf-8')
             st.sidebar.success("ファイルが正常にアップロードされました。")
-            st.sidebar.dataframe(df.head())
+            st.sidebar.dataframe(df.head()) # サイドバーにデータフレームの冒頭を表示
 
+            # ★★★ 新機能: 頻出キーワード数スライダー ★★★
+            # defaultは10、最小1、最大50程度、ステップ1
             top_n_keywords = st.sidebar.slider(
                 "表示する頻出キーワード数",
                 min_value=1,
                 max_value=50,
-                value=st.session_state.get('top_n_keywords', 10),
-                step=1,
-                key='top_n_slider'
+                value=10,
+                step=1
             )
-            st.session_state['top_n_keywords'] = top_n_keywords
+            st.session_state['top_n_keywords'] = top_n_keywords # セッションに保存
 
-            if st.sidebar.button("分析を実行"):
+            # Analyzeボタン
+            if st.sidebar.button("分析を開始"):
                 analyzer = SurveyNLPAnalyzer(df)
+                # ★★★ 修正点: analyze_data に top_n_keywords を渡す ★★★
                 analysis_results, updated_df = analyzer.analyze_data(df, top_n_keywords) 
 
                 st.session_state['analysis_results'] = analysis_results
-                st.session_state['df'] = updated_df
-                st.session_state['analyzer'] = analyzer
-                
-                st.session_state['selected_overall_keyword'] = None
-                st.session_state['selected_overall_keyword_indices'] = []
-
-                temp_analyzer = SurveyNLPAnalyzer(updated_df)
-                question_cols_for_reset = [col for col in updated_df.columns if re.match(r'Q\d+回答', col)]
-
-                for col_name in question_cols_for_reset:
-                    if f'selected_q_keyword_{col_name}' in st.session_state:
-                        del st.session_state[f'selected_q_keyword_{col_name}']
-                    if f'selected_q_keyword_indices_{col_name}' in st.session_state:
-                        del st.session_state[f'selected_q_keyword_indices_{col_name}']
-                
-                st.rerun()
+                st.session_state['df'] = updated_df # 更新されたDataFrameをセッションに保存
+                st.session_state['analyzer'] = analyzer # analyzerインスタンスも保存
 
         except UnicodeDecodeError:
             st.error("CSVファイルのエンコーディングがUTF-8ではありません。'shift_jis'または'cp932'を試してみてください。")
             try:
-                uploaded_file.seek(0)
+                uploaded_file.seek(0) # ファイルポインタを先頭に戻す
                 df = pd.read_csv(uploaded_file, encoding='shift_jis')
                 st.sidebar.success("ファイルが正常にアップロードされました (Shift-JIS)。")
-                st.session_state['df'] = df
-                st.info("Shift-JISで読み込みました。分析を開始するには再度「分析を実行」ボタンを押してください。")
+                st.session_state['df'] = df # Session State に df を保存
+                st.info("Shift-JISで読み込みました。分析を開始するには再度「分析を開始」ボタンを押してください。")
             except Exception as e:
                 st.error(f"Shift-JISでの読み込みも失敗しました: {e}")
         except Exception as e:
@@ -469,14 +361,37 @@ def main_app():
     else:
         st.info("CSVファイルをアップロードして分析を開始してください。")
 
-    if st.session_state['analysis_results'] is not None and st.session_state['analyzer'] is not None:
+    if 'analysis_results' in st.session_state and 'analyzer' in st.session_state:
         analysis_results = st.session_state['analysis_results']
         df = st.session_state['df']
         analyzer = st.session_state['analyzer']
-        top_n_keywords_display = st.session_state.get('top_n_keywords', 10)
+        # ★★★ 修正点: スライダーの値もセッションから取得 ★★★
+        top_n_keywords_display = st.session_state.get('top_n_keywords', 10) # デフォルト値は10
+
+        # # デバッグ用: シンプルなグラフでホバー機能の動作確認
+        # st.header("--- デバッグ用テストグラフ ---")
+        # test_data = pd.DataFrame({
+        #     'Category': ['A', 'B', 'C'],
+        #     'Value': [10, 20, 50],
+        #     'HoverInfo': ['テスト詳細情報1', 'テスト詳細情報2', 'テスト詳細情報3'] # 純粋なテキスト例
+        # })
+
+        # test_fig = px.bar(test_data, x='Category', y='Value', 
+        #                   title="テストバーチャート",
+        #                   custom_data=[test_data['HoverInfo'].tolist()]) 
+
+        # test_fig.update_traces(
+        #     hovertemplate="<b>カテゴリ:</b> %{x}<br>" +
+        #                   "<b>値:</b> %{y}<br>" +
+        #                   "<b>詳細:</b> %{customdata}" + 
+        #                   "<extra></extra>" # これでツールチップに余計なTrace情報が表示されなくなる
+        # )
+        # st.plotly_chart(test_fig, use_container_width=True)
+        # st.header("----------------------------")
 
         st.header("✨ 全体分析結果")
 
+        # 全体結果の表示 (2列レイアウト)
         col1, col2 = st.columns(2)
 
         with col1:
@@ -502,6 +417,7 @@ def main_app():
             st.subheader("組織別要望分類")
             org_analysis = analysis_results['overall'].get('org_analysis', pd.DataFrame())
             if not org_analysis.empty and not org_analysis.sum().sum() == 0:
+                # Plotlyで積み上げ棒グラフ
                 org_analysis_melted = org_analysis.reset_index().melt(id_vars='組織', var_name='分類', value_name='件数')
                 fig_org = px.bar(org_analysis_melted, x='組織', y='件数', color='分類', title='組織別要望分類 (全体)')
                 st.plotly_chart(fig_org, use_container_width=True)
@@ -509,61 +425,36 @@ def main_app():
                 st.info("組織別分類データなし (全体)")
 
         with col2:
-            st.subheader(f"頻出キーワード上位{top_n_keywords_display}件")
+            st.subheader(f"頻出キーワード上位{top_n_keywords_display}件") # スライダーの値をタイトルに反映
             overall_top_words_df = pd.DataFrame(analysis_results['overall'].get('top_words', []), columns=['キーワード', '出現回数'])
             if not overall_top_words_df.empty:
                 detailed_df = analysis_results['overall']['detailed_keywords_df']
                 
-                hover_text_map = detailed_df.groupby('keyword')['original_text'].apply(
-                    lambda x: "<br>- " + "<br>- ".join(x.unique())
-                ).to_dict()
-
-                overall_top_words_df['custom_hover_text'] = overall_top_words_df['キーワード'].map(hover_text_map).fillna("該当する回答がありません。")
-
-                overall_top_words_df['original_indices_json'] = overall_top_words_df['キーワード'].apply(
-                    lambda k: json.dumps([int(idx) for idx in detailed_df[detailed_df['keyword'] == k]['original_row_index'].unique()]) # int()に変換
+                # ★★★ 修正点: ホバーテキストを純粋なoriginal_textのみにする ★★★
+                # 各キーワードに関連するoriginal_textをすべて結合する
+                overall_top_words_df['custom_hover_text'] = overall_top_words_df['キーワード'].apply(
+                    lambda k: "-".join([
+                        row['original_text'] # <-- これが純粋なCSV抽出文言
+                        for _, row in detailed_df[detailed_df['keyword'] == k].iterrows()
+                    ]) or "該当する回答がありません。"
                 )
+                
+                # --- デバッグ用出力 ---
+                # st.write("--- Overall Custom Hover Text (Sample) ---")
+                # st.dataframe(overall_top_words_df[['キーワード', 'custom_hover_text']].head())
+                # --- デバッグ用出力終わり ---
 
                 fig_keywords = px.bar(overall_top_words_df, x='出現回数', y='キーワード', orientation='h', 
-                                    title=f'頻出キーワード上位{top_n_keywords_display} (全体)',
-                                    custom_data=['custom_hover_text', 'original_indices_json'] 
-                                ) 
+                                    title=f'頻出キーワード上位{top_n_keywords_display} (全体)', # スライダーの値をタイトルに反映
+                                    custom_data=[overall_top_words_df['custom_hover_text'].tolist()]) 
                 
                 fig_keywords.update_traces(
                     hovertemplate="<b>%{y}</b><br>出現回数: %{x}<br>" +
-                                  "<b>関連する回答:</b><br>%{customdata[0]}" + 
+                                  "<b>関連する回答:</b><br>%{customdata}" + 
                                   "<extra></extra>" 
                 )
                 
-                selected_points = plotly_events(
-                    fig_keywords, 
-                    select_event=True, 
-                    key="overall_keywords_plot" 
-                )
-
-                if selected_points and 'customdata' in selected_points[0]:
-                    clicked_keyword = selected_points[0]['y'] 
-                    clicked_row_indices_json = selected_points[0]['customdata'][1]
-                    clicked_row_indices = json.loads(clicked_row_indices_json)
-                    
-                    st.session_state['selected_overall_keyword'] = clicked_keyword
-                    st.session_state['selected_overall_keyword_indices'] = clicked_row_indices
-                    
-                    st.rerun()
-                
-                if st.session_state['selected_overall_keyword']:
-                    st.subheader(f"選択キーワード: 『{st.session_state['selected_overall_keyword']}』 の関連回答詳細")
-                    
-                    selected_indices = list(set(st.session_state['selected_overall_keyword_indices']))
-                    if not df.empty and selected_indices:
-                        display_cols = [col for col in df.columns if re.match(r'Q\d+回答', col)]
-                        if '組織' in df.columns: display_cols.append('組織')
-                        if '性別' in df.columns: display_cols.append('性別')
-                        display_cols = list(set(display_cols))
-
-                        st.dataframe(df.loc[selected_indices, display_cols])
-                    else:
-                        st.info("選択されたキーワードに関連する詳細データが見つかりませんでした。")
+                st.plotly_chart(fig_keywords, use_container_width=True)
             else:
                 st.info(f"頻出キーワードなし (全体) - 現在のキーワード数設定: {top_n_keywords_display}")
 
@@ -576,99 +467,48 @@ def main_app():
             else:
                 st.info("性別分類データなし (全体)")
             
-            st.subheader("ワードクラウド (全体)")
-            overall_wc_image_fig = analyzer.generate_wordcloud_image(
-                analysis_results['overall'].get('word_list', []), 
-                'ワードクラウド (全体)', width=1000, height=500
-            )
-            if overall_wc_image_fig:
-                st.pyplot(overall_wc_image_fig)
-            else:
-                st.info("ワードクラウドデータなし (全体)")
-            
-            st.subheader("共起ネットワークグラフ (全体)")
-            overall_collocations = analysis_results['overall'].get('collocations', [])
-            overall_network_graph = analyzer.create_network_graph(overall_collocations)
-            
-            if overall_network_graph and overall_network_graph.number_of_nodes() > 0:
-                fig_overall_network = analyzer.draw_network_graph_matplotlib(overall_network_graph, "共起ネットワークグラフ (全体)")
-                if fig_overall_network:
-                    st.pyplot(fig_overall_network)
-            else:
-                st.info("共起ネットワークグラフのデータなし (全体)。共起語が見つからないか、ノードが作成できませんでした。")
-
 
         st.markdown("---")
 
         st.header("📝 設問別分析結果")
 
+        # 設問ごとの結果を表示
         if analyzer.question_cols: 
             for q_col in analyzer.question_cols:
-                if f'selected_q_keyword_{q_col}' not in st.session_state:
-                    st.session_state[f'selected_q_keyword_{q_col}'] = None
-                if f'selected_q_keyword_indices_{q_col}' not in st.session_state:
-                    st.session_state[f'selected_q_keyword_indices_{q_col}'] = []
-
                 st.subheader(f"### {q_col} の分析結果")
                 q_results = analysis_results['questions'][q_col]
 
                 col_q1, col_q2, col_q3 = st.columns(3)
 
                 with col_q1:
-                    st.write(f"#### 頻出キーワード上位{top_n_keywords_display}件")
+                    st.write(f"#### 頻出キーワード上位{top_n_keywords_display}件") # スライダーの値をタイトルに反映
                     q_top_words_df = pd.DataFrame(q_results.get('top_words', []), columns=['キーワード', '出現回数'])
                     if not q_top_words_df.empty:
                         detailed_df = q_results['detailed_keywords_df']
                         
-                        hover_text_map_q = detailed_df.groupby('keyword')['original_text'].apply(
-                            lambda x: "<br>- " + "<br>- ".join(x.unique())
-                        ).to_dict()
-
-                        q_top_words_df['custom_hover_text'] = q_top_words_df['キーワード'].map(hover_text_map_q).fillna("該当する回答がありません。")
-                        
-                        q_top_words_df['original_indices_json'] = q_top_words_df['キーワード'].apply(
-                            lambda k: json.dumps([int(idx) for idx in detailed_df[detailed_df['keyword'] == k]['original_row_index'].unique()]) # int()に変換
+                        # ★★★ 修正点: ホバーテキストを純粋なoriginal_textのみにする ★★★
+                        q_top_words_df['custom_hover_text'] = q_top_words_df['キーワード'].apply(
+                            lambda k: "-".join([
+                                row['original_text'] # <-- これが純粋なCSV抽出文言
+                                for _, row in detailed_df[detailed_df['keyword'] == k].iterrows()
+                            ]) or "該当する回答がありません。"
                         )
 
+                        # --- デバッグ用出力 ---
+                        st.write(f"--- {q_col} Custom Hover Text (Sample) ---") 
+                        st.dataframe(q_top_words_df[['キーワード', 'custom_hover_text']].head())
+                        # --- デバッグ用出力終わり ---
+
                         fig_q_keywords = px.bar(q_top_words_df, x='出現回数', y='キーワード', orientation='h',
-                                                title=f'頻出キーワード上位{top_n_keywords_display} ({q_col})',
-                                                custom_data=['custom_hover_text', 'original_indices_json'] 
-                                            ) 
+                                                title=f'頻出キーワード上位{top_n_keywords_display} ({q_col})', # スライダーの値をタイトルに反映
+                                                custom_data=[q_top_words_df['custom_hover_text'].tolist()]) 
 
                         fig_q_keywords.update_traces(
                             hovertemplate="<b>%{y}</b><br>出現回数: %{x}<br>" +
-                                          "<b>関連する回答:</b><br>%{customdata[0]}" + 
+                                          "<b>関連する回答:</b><br>%{customdata}" + 
                                           "<extra></extra>"
                         )
-                        
-                        selected_points_q = plotly_events(
-                            fig_q_keywords, 
-                            select_event=True, 
-                            key=f"q_{q_col}_keywords_plot" 
-                        )
-
-                        if selected_points_q and 'customdata' in selected_points_q[0]:
-                            clicked_keyword_q = selected_points_q[0]['y'] 
-                            clicked_row_indices_json_q = selected_points_q[0]['customdata'][1]
-                            clicked_row_indices_q = json.loads(clicked_row_indices_json_q)
-                            
-                            st.session_state[f'selected_q_keyword_{q_col}'] = clicked_keyword_q
-                            st.session_state[f'selected_q_keyword_indices_{q_col}'] = clicked_row_indices_q
-                            
-                            st.rerun()
-                        
-                        if st.session_state.get(f'selected_q_keyword_{q_col}'):
-                            with st.expander(f"選択キーワード: 『{st.session_state[f'selected_q_keyword_{q_col}']}』 の関連回答詳細"):
-                                selected_indices_q = list(set(st.session_state[f'selected_q_keyword_indices_{q_col}']))
-                                if not df.empty and selected_indices_q:
-                                    display_cols_q = [q_col]
-                                    if '組織' in df.columns: display_cols_q.append('組織')
-                                    if '性別' in df.columns: display_cols_q.append('性別')
-                                    display_cols_q = list(set(display_cols_q))
-                                    
-                                    st.dataframe(df.loc[selected_indices_q, display_cols_q])
-                                else:
-                                    st.info("選択されたキーワードに関連する詳細データが見つかりませんでした。")
+                        st.plotly_chart(fig_q_keywords, use_container_width=True)
                     else:
                         st.info(f"頻出キーワードなし ({q_col}) - 現在のキーワード数設定: {top_n_keywords_display}")
 
@@ -682,31 +522,8 @@ def main_app():
                     else:
                         st.info(f"感情分析データなし ({q_col})")
 
-                with col_q3:
-                    st.write("#### ワードクラウド")
-                    q_wc_image_fig = analyzer.generate_wordcloud_image(
-                        q_results.get('word_list', []), 
-                        f'ワードクラウド ({q_col})', width=800, height=400
-                    )
-                    if q_wc_image_fig:
-                        st.pyplot(q_wc_image_fig)
-                    else:
-                        st.info(f"ワードクラウドデータなし ({q_col})")
-                    
-                    st.write("#### 共起ネットワークグラフ")
-                    q_collocations = q_results.get('collocations', [])
-                    q_network_graph = analyzer.create_network_graph(q_collocations)
-                    
-                    if q_network_graph and q_network_graph.number_of_nodes() > 0:
-                        fig_q_network = analyzer.draw_network_graph_matplotlib(q_network_graph, f"共起ネットワークグラフ ({q_col})")
-                        if fig_q_network:
-                            st.pyplot(fig_q_network)
-                    else:
-                        st.info(f"共起ネットワークグラフのデータなし ({q_col})。共起語が見つからないか、ノードが作成できませんでした。")
-
-
-                st.markdown("---") 
-        else:
+                st.markdown("---") # 各設問の間に区切り線
+        else: # question_cols が空の場合のメッセージ
             st.info("分析対象の設問回答列（Q〇〇回答）が見つかりませんでした。CSVファイルの列名をご確認ください。")
 
 
