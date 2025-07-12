@@ -199,29 +199,39 @@ class SurveyNLPAnalyzer:
             G.add_edge(w1, w2, weight=count)
         return G if G.number_of_nodes() > 0 else None
 
-    def generate_wordcloud_image(self, text_data, file_name, width=800, height=400):
-        if not text_data:
-            st.warning(f"{file_name} のワードクラウド用のテキストデータが空です。")
-            return None
+    def generate_wordcloud_image(word_counts, file_name, width=800, height=400, font_path=None, font_prop=None):
+        """
+        ワードクラウド画像を生成して matplotlib の Figure を返す関数。
 
+        Parameters:
+            word_counts (dict): 単語と頻度の辞書
+            file_name (str): 図のタイトルとして表示されるテキスト
+            width (int): ワードクラウド画像の横幅
+            height (int): ワードクラウド画像の縦幅
+            font_path (str): WordCloud 用フォントパス（.ttf）
+            font_prop (FontProperties): matplotlib 用フォント設定
+
+        Returns:
+            matplotlib.figure.Figure: 描画済のワードクラウド図
+        """
+        # WordCloudインスタンス生成（背景は黒）
         wc = WordCloud(
-            font_path=self.wc_font_path,
+            font_path=font_path,
             width=width,
             height=height,
             background_color="black",
-            max_words=100,
-            min_font_size=10,
-            collocations=False
+            colormap='tab20'  # カラーマップ変更可
         )
-        
-        word_counts = Counter(text_data)
+
+        # 単語頻度から画像生成
         wc.generate_from_frequencies(word_counts)
 
-        fig, ax = plt.subplots(figsize=(width/100, height/100), dpi=100)
+        # matplotlibで描画
+        fig, ax = plt.subplots(figsize=(width / 100, height / 100))
         ax.imshow(wc, interpolation='bilinear')
         ax.axis("off")
         ax.set_title(file_name, fontproperties=font_prop, fontsize=18, color='white')
-        
+
         return fig
 
     def draw_network_graph_matplotlib(self, G, title="共起ネットワークグラフ"):
