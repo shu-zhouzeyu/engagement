@@ -27,39 +27,38 @@ import networkx as nx
 # Streamlit Plotly Eventsをインポート
 from streamlit_plotly_events import plotly_events
 
-# 日本語フォント設定 (WordCloudとMatplotlib用)
-import platform
-import os
-from matplotlib import font_manager, rcParams
+# -----------------------------------
+# ✅ 日本語フォント設定（matplotlib + WordCloud 両対応）
+# -----------------------------------
 
-font_prop = None
-
-if platform.system() == 'Windows':
-    font_path = 'C:/Windows/Fonts/meiryo.ttc'
-elif platform.system() == 'Darwin':
-    font_path = '/System/Library/Fonts/ヒラギノ角ゴシック W3.ttc'
-else:
-    # Streamlit Cloud（Linux）では TakaoGothic を優先使用
-    font_path = '/usr/share/fonts/truetype/takao-gothic/TakaoGothic.ttf'
-
-# フォントが存在する場合はそのまま使用
-if os.path.exists(font_path):
-    font_prop = font_manager.FontProperties(fname=font_path)
-    rcParams['font.family'] = font_prop.get_name()
-else:
-    # フォールバック処理：他の日本語フォントを検索
-    font_files = font_manager.findSystemFonts()
-    found = False
+def find_japanese_ttf_font():
+    # 優先フォント名のリスト（.ttf に限定）
+    preferred_keywords = ['noto', 'takao', 'gothic', 'mplus', 'ume', 'ipag']
+    font_files = font_manager.findSystemFonts(fontpaths=None)
     for f in font_files:
-        if any(name in f.lower() for name in ['meiryo', 'hiragino', 'noto', 'gothic', 'takao']):
-            font_prop = font_manager.FontProperties(fname=f)
-            rcParams['font.family'] = font_prop.get_name()
-            st.info(f"代替日本語フォント '{font_prop.get_name()}' を使用します。")
-            found = True
-            break
-    if not found:
-        st.warning("日本語フォントが見つかりません。文字化けの可能性があります。")
-        rcParams['font.family'] = ['sans-serif']
+        if f.endswith(".ttf") and any(keyword in f.lower() for keyword in preferred_keywords):
+            return f
+    return None
+
+# Matplotlib用のフォント設定（streamlit + matplotlib）
+def set_matplotlib_font(font_path):
+    try:
+        font_prop = font_manager.FontProperties(fname=font_path)
+        rcParams['font.family'] = font_prop.get_name()
+        return font_prop
+    except Exception as e:
+        st.warning(f"フォント設定に失敗しました: {e}")
+        return None
+
+# 実行
+font_path = find_japanese_ttf_font()
+if font_path:
+    font_prop = set_matplotlib_font(font_path)
+    st.info(f"日本語フォント '{font_prop.get_name()}' を使用しています。")
+else:
+    st.warning("日本語フォント（.ttf）が見つかりません。文字化けの可能性があります。")
+    rcParams['font.family'] = ['sans-serif']
+    font_path = None  # WordCloud に渡す用
 
 warnings.filterwarnings('ignore')
 
