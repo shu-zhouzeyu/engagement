@@ -24,7 +24,7 @@ from streamlit_plotly_events import plotly_events
 
 # アプリケーションディレクトリ内のフォントパスを指定
 # 例えば、カレントディレクトリに 'fonts' フォルダがあり、その中に 'NotoSansJP-Regular.ttf' がある場合
-font_file_name = 'NotoSansJP-Regular.ttf' # または使用したいNoto Sans JPのファイル名
+font_file_name = 'NotoSansJP-VariableFont_wght.ttf' # または使用したいNoto Sans JPのファイル名
 
 # fonts フォルダ内にあるか、または直接カレントディレクトリにあるかを確認
 if os.path.exists(f'fonts/{font_file_name}'):
