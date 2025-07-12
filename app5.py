@@ -32,15 +32,27 @@ from streamlit_plotly_events import plotly_events
 # -----------------------------------
 
 def find_japanese_ttf_font():
-    # 優先フォント名のリスト（.ttf に限定）
-    preferred_keywords = ['noto', 'takao', 'gothic', 'mplus', 'ume', 'ipag']
+    # 優先フォント名のリスト
+    preferred_keywords = ['noto', 'takao', 'gothic', 'mplus', 'ume', 'ipag', 'meiryo', 'hiragino']
+
+    # ✅ 1. リポジトリ内の fonts/ フォルダを優先的に検索
+    repo_fonts_path = os.path.join(os.path.dirname(__file__), 'fonts')
+    if os.path.isdir(repo_fonts_path):
+        font_files = font_manager.findSystemFonts(fontpaths=[repo_fonts_path])
+        for f in font_files:
+            if f.endswith(".ttf") and any(k in f.lower() for k in preferred_keywords):
+                return f
+
+    # ✅ 2. システムフォントから検索（通常のLinux/Mac/Win）
     font_files = font_manager.findSystemFonts(fontpaths=None)
     for f in font_files:
-        if f.endswith(".ttf") and any(keyword in f.lower() for keyword in preferred_keywords):
+        if f.endswith(".ttf") and any(k in f.lower() for k in preferred_keywords):
             return f
+
+    # 見つからなければ None
     return None
 
-# Matplotlib用のフォント設定（streamlit + matplotlib）
+# Matplotlib用のフォント設定
 def set_matplotlib_font(font_path):
     try:
         font_prop = font_manager.FontProperties(fname=font_path)
@@ -58,8 +70,8 @@ if font_path:
 else:
     st.warning("日本語フォント（.ttf）が見つかりません。文字化けの可能性があります。")
     rcParams['font.family'] = ['sans-serif']
-    font_path = os.path.join("fonts", "NotoSansCJKjp-Regular.ttf")
-    wc = WordCloud(font_path=font_path, background_color='white', width=800, height=400)
+    font_path = None  # WordCloud に渡す用
+    
 warnings.filterwarnings('ignore')
 
 class SurveyNLPAnalyzer:
