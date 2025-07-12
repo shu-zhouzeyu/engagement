@@ -58,8 +58,8 @@ if font_path:
 else:
     st.warning("日本語フォント（.ttf）が見つかりません。文字化けの可能性があります。")
     rcParams['font.family'] = ['sans-serif']
-    font_path = None  # WordCloud に渡す用
-
+    font_path = os.path.join("fonts", "NotoSansCJKjp-Regular.ttf")
+    wc = WordCloud(font_path=font_path, background_color='white', width=800, height=400)
 warnings.filterwarnings('ignore')
 
 class SurveyNLPAnalyzer:
