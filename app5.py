@@ -598,15 +598,15 @@ def main_app():
             else:
                 st.info("性別分類データなし (全体)")
             
-            st.subheader("ワードクラウド (全体)")
-            overall_wc_image_fig = analyzer.generate_wordcloud_image(
-                analysis_results['overall'].get('word_list', []), 
-                'ワードクラウド (全体)', width=1000, height=500
-            )
-            if overall_wc_image_fig:
-                st.pyplot(overall_wc_image_fig)
-            else:
-                st.info("ワードクラウドデータなし (全体)")
+            # st.subheader("ワードクラウド (全体)")
+            # overall_wc_image_fig = analyzer.generate_wordcloud_image(
+            #     analysis_results['overall'].get('word_list', []), 
+            #     'ワードクラウド (全体)', width=1000, height=500
+            # )
+            # if overall_wc_image_fig:
+            #     st.pyplot(overall_wc_image_fig)
+            # else:
+            #     st.info("ワードクラウドデータなし (全体)")
             
             st.subheader("共起ネットワークグラフ (全体)")
             overall_collocations = analysis_results['overall'].get('collocations', [])
